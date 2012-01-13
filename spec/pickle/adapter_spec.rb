@@ -2,6 +2,7 @@ require 'spec_helper'
 
 require 'active_record'
 require 'factory_girl'
+require 'fabrication'
 require 'machinist/active_record'
 require 'pickle/adapters/active_record'
 
@@ -67,23 +68,35 @@ describe Pickle::Adapter do
           end
         end
       end
-
-
     end
 
     describe 'FactoryGirl' do
       before do
         Pickle::Adapter::FactoryGirl.stub!(:model_classes).and_return([@klass1, @klass2, @klass3])
-        @orig_factories, Factory.factories = Factory.factories, {}
 
-        Factory.define(:one, :class => @klass1) {}
-        Factory.define(:two, :class => @klass2) {}
-        @factory1 = Factory.factories[:one]
-        @factory2 = Factory.factories[:two]
+        if defined? ::FactoryGirl
+          @orig_factories = ::FactoryGirl.factories.dup
+          ::FactoryGirl.factories.clear
+          ::FactoryGirl::Syntax::Default::DSL.new.factory(:one, :class => @klass1) {}
+          ::FactoryGirl::Syntax::Default::DSL.new.factory(:two, :class => @klass2) {}
+          @factory1 = ::FactoryGirl.factories[:one]
+          @factory2 = ::FactoryGirl.factories[:two]
+        else
+          @orig_factories, Factory.factories = Factory.factories, {}
+          Factory.define(:one, :class => @klass1) {}
+          Factory.define(:two, :class => @klass2) {}
+          @factory1 = Factory.factories[:one]
+          @factory2 = Factory.factories[:two]
+        end
       end
 
       after do
-        Factory.factories = @orig_factories
+        if defined? ::FactoryGirl
+          ::FactoryGirl.factories.clear
+          @orig_factories.each {|f| ::FactoryGirl.factories.add(f) }
+        else
+          Factory.factories = @orig_factories
+        end
       end
 
       it ".factories should create one for each factory" do
@@ -105,9 +118,49 @@ describe Pickle::Adapter do
           @factory.klass.should == @klass1
         end
 
-        it "#create(attrs) should call Factory(<:key>, attrs)" do
-          Factory.should_receive(:create).with("one", {:key => "val"})
-          @factory.create(:key => "val")
+        unless defined? ::FactoryGirl
+          it "#create(attrs) should call Factory(<:key>, attrs)" do
+            Factory.should_receive(:create).with("one", {:key => "val"})
+            @factory.create(:key => "val")
+          end
+        end
+      end
+    end
+
+    describe 'Fabrication' do
+      before do
+        @schematic1 = [:one, Fabrication::Schematic.new(@klass1)]
+        @schematic2 = [:two, Fabrication::Schematic.new(@klass2)]
+        ::Fabrication::Fabricator.stub(:schematics).and_return([@schematic1, @schematic2])
+      end
+
+      it '.factories should create one for each fabricator' do
+        Pickle::Adapter::Fabrication.should_receive(:new).with(@schematic1)
+        Pickle::Adapter::Fabrication.should_receive(:new).with(@schematic2)
+
+        Pickle::Adapter::Fabrication.factories
+      end
+
+      describe ".new" do
+        before do
+          @factory = Pickle::Adapter::Fabrication.new(@schematic1)
+        end
+
+        it ".new should have name of schematic name" do
+          @factory.name.should == 'one'
+        end
+
+        it "should have klass of build_class" do
+          @factory.klass.should == @klass1
+        end
+      end
+
+      describe ".create" do
+        it "returns the fabricated instance" do
+          @factory = Pickle::Adapter::Fabrication.new(@schematic1)
+          ::Fabrication::Fabricator.should_receive(:generate).
+              with(@factory.name.to_sym, {:save => true}, {:attribute => 'value'})
+          @factory.create({:attribute => 'value'})
         end
       end
     end
