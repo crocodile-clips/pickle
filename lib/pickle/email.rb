@@ -21,12 +21,12 @@ module Pickle
 
     def visit_in_email(email, link_text)
       link = parse_email_for_link(email, link_text)
-      visit URI.parse(link).path
+      visit URI.parse(link).to_s
     end
 
     def click_first_link_in_email(email)
       link = links_in_email(email).first
-      visit URI.parse(link).path
+      visit URI.parse(link).to_s
     end
 
   protected
